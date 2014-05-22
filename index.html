@@ -9,7 +9,7 @@
 
 <form>
     <input name="vehicle" id="vehicle" data-bind="value: vehicle"/>
-    <input name="mileage" data-bind="value: mileage"/>
+    <input name="mileage" data-bind="value: mileage" data-val="true" data-val-ko="this is not right at all" data-val-ko-rule="isMileageValidAsync"/><span data-valmsg-for="mileage" data-valmsg-replace="true"></span>
     <pre data-bind="text: ko.toJSON($root, null, 2)"></pre>
     <button type="submit">submit</button>
 </form>
@@ -19,7 +19,6 @@
     $(function () {
 
         function ViewModel() {
-            var self = this;
             this.vehicle = ko.observable(100);
             this.mileage = ko.observable(200);
             this.isMileageValid = ko.computed(function() {
@@ -27,12 +26,12 @@
             }, this);
             this.isMileageValidAsync = ko.computed(function() {
                 var
-                    deferred = $.Deferred(),
-                    result = this.isMileageValid(),
-                    progress = 0,
-                    progressTimer = window.setInterval(function() {
-                        deferred.notify(++progress);
-                    }, 200);
+                        deferred = $.Deferred(),
+                        result = this.isMileageValid(),
+                        progress = 0,
+                        progressTimer = window.setInterval(function() {
+                            deferred.notify(++progress);
+                        }, 200);
 
                 console.log("values: " + this.vehicle() + ", " + this.mileage());
 
@@ -40,7 +39,7 @@
                     console.log("done");
                     window.clearInterval(progressTimer);
                     deferred.resolve(result);
-                }, 2000);
+                }, 1000);
                 return deferred.promise();
             }, this);
         };
@@ -48,14 +47,19 @@
 
         (function () {
             var subscriptions = {};
+            var pendingValidations = {};
             $.validator.addMethod("ko", function(value, element, param) {
                 console.log('validating '+value+'...');
                 var isValidFunction = param.isValid;
+                var validator = this;
+                (pendingValidations[element.name] || (pendingValidations[element.name] = {}))[value] = true;
                 if (!subscriptions[element.name]) {
                     console.log("registering subscription");
                     subscriptions[element.name] = function() {
-                        console.log("triggering subscription");
-                        $(element).valid();
+                        if (!(pendingValidations[element.name] && pendingValidations[element.name][value])) {
+                            console.log("triggering subscription");
+                            $(element).valid();
+                        }
                     };
                     isValidFunction.subscribe(subscriptions[element.name]);
                 }
@@ -65,9 +69,11 @@
                 if (promise) {
                     if (promise.state() === "resolved") {
                         promise.done(function(resolvedResult) { result = resolvedResult; });
+                        if (pendingValidations[element.name]) delete pendingValidations[element.name][value];
                         return result;
                     }
-                    handlePromise.call(this, element, value, promise);
+                    handlePromise(validator, element, value, promise)
+                            .done(function() { if (pendingValidations[element.name]) delete pendingValidations[element.name][value] });
                     console.log("pending...");
                     return "pending";
                 }
@@ -76,19 +82,19 @@
                 }
             });
 
-            function handlePromise(element, value, promise) {
-                var previous = this.previousValue(element), validator = this, data;
+            function handlePromise(validator, element, value, promise) {
+                var previous = validator.previousValue(element), data;
 
-                if (!this.settings.messages[element.name]) {
-                    this.settings.messages[element.name] = {};
+                if (!validator.settings.messages[element.name]) {
+                    validator.settings.messages[element.name] = {};
                 }
-                previous.originalMessage = this.settings.messages[element.name].remote;
-                this.settings.messages[element.name].remote = previous.message;
+                previous.originalMessage = validator.settings.messages[element.name].remote;
+                validator.settings.messages[element.name].remote = previous.message;
 
-                this.startRequest(element);
+                validator.startRequest(element);
 
                 promise.progress(function(progress) {
-                    console.log(progress);}
+                            console.log(progress);}
                 );
                 promise.done(function(result) {
                     var valid = result === true || result === "true",
@@ -106,34 +112,46 @@
                         validator.showErrors();
                     } else {
                         errors = {};
-                        message = result || validator.defaultMessage(element, "remote");
+                        message = result || validator.defaultMessage(element, "ko");
                         errors[element.name] = previous.message = $.isFunction(message) ? message(value) : message;
                         validator.invalid[element.name] = true;
                         validator.showErrors(errors);
                     }
                     validator.stopRequest(element, valid);
                 });
+                return promise;
             }
         }());
         ko.applyBindings(vm);
 
-        $("form").validate({
-            rules: {
-                mileage: {
-                    ko: {
-                        // isValid: vm.isMileageValid,
-                        isValid: vm.isMileageValidAsync
-                    }
-                }
-            },
-            messages: {
-                mileage: {
-                    ko: "ko error message"
-                }
+//
+//        $("form").validate({
+//            rules: {
+//                mileage: {
+//                    ko: {
+//                        // isValid: vm.isMileageValid,
+//                        isValid: vm.isMileageValidAsync
+//                    }
+//                }
+//            },
+//            messages: {
+//                mileage: {
+//                    ko: "ko error message"
+//                }
+//            }
+//        });
+
+        $.validator.unobtrusive.adapters.add("ko", ["rule"], function(options) {
+            var koVM = ko.contextFor(options.element), isValid = koVM.$root[options.params.rule];
+            options.rules["ko"] = { isValid: isValid };
+            if (options.message) {
+                options.messages["ko"] = options.message;
             }
         });
     });
 </script>
+
+<script src="jquery.validate.unobtrusive.js"></script>
 
 </body>
 </html>
