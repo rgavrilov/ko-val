@@ -9,7 +9,8 @@
 
 <form>
     <input name="vehicle" id="vehicle" data-bind="value: vehicle"/>
-    <input name="mileage" data-bind="value: mileage" data-val="true" data-val-ko="this is not right at all" data-val-ko-rule="isMileageValidAsync"/><span data-valmsg-for="mileage" data-valmsg-replace="true"></span>
+    <!--<input name="mileage" data-bind="value: mileage" data-val="true" data-val-ko="this is not right at all" data-val-ko-rule="isMileageValidAsync"/><span data-valmsg-for="mileage" data-valmsg-replace="true"></span>-->
+    <input name="mileage_ko" data-bind="value: mileage, isValid: isMileageValidAsync" type="text"/>
     <pre data-bind="text: ko.toJSON($root, null, 2)"></pre>
     <button type="submit">submit</button>
 </form>
@@ -122,9 +123,18 @@
                 return promise;
             }
         }());
+
+
+        ko.bindingHandlers.isValid = {
+            init: function(element, valueBinding, allBindings) {
+                $(element).rules("add", { "ko": { isValid: valueBinding() }, "messages": { "ko": "oops" } });
+            }
+        };
+
+        $("form").validate();
+
         ko.applyBindings(vm);
 
-//
 //        $("form").validate({
 //            rules: {
 //                mileage: {
